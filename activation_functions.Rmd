@@ -1,0 +1,316 @@
+---
+title: "Activation functions"
+date: "2023-04-17"
+output: 
+  html_document:
+    toc: true 
+    toc_depth: 4
+    toc_float: true
+    code_folding: show
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse)
+require(papaja)
+require(cowplot)
+require(skimr)
+source("utilities.R")
+```
+
+```{css, echo = FALSE}
+pre, code {
+  max-height: 500px;
+  overflow-y: auto;
+  white-space: pre !important; 
+  overflow-x: auto
+}
+```
+
+# Overview
+This notebooks runs through a bunch of common activation functions used in neural networks (and other contexts). For each activation function provided, there is a description, equation, and an implementation in R, along with a little demonstration of a resulting univariate and bivariate distribution (against a raw $X$).
+
+Let's start by defining a variable, which we will call $X$, containing a random set of 10,000 values that are normally distributed with a mean of 0 and an SD of 1. We will put $X$ in a dataframe (data).
+
+```{r X}
+set.seed(87603)
+data = tibble(X = rnorm(10000, mean = 0, sd = 1)) %>% 
+  glimpse()
+
+```
+
+The distribution of $X$ looks like this.
+
+```{r xUnivariate, warning=FALSE}
+
+data %>% 
+  ggplot(aes(X)) +
+  geom_histogram(fill = "pink", color = "black") +
+  theme_apa()
+
+```
+
+## Softmax
+The conceptual basis for the softmax function is more straightforward than the formula itself. Softmax allows us to take a vector of values as inputs and output each value as a probability. This is very useful in situations where a probability-based interpretation of the activation of units in the network is useful, among others.
+
+The computation is a little less straightforward, because it involves exponentiating your input values using base $e$. Then for each of your x values, you divide your exponentiated value by the sum of all exponentiated values in your vector. This results in a probability.
+
+$$
+softmax(x_i) = \frac{e^{x_{i}}}{\sum_{j=1}^K e^{x_{j}}} \ \ \ for\ i=1,2,\dots,K
+$$
+
+We can specify it in R in this way. It is very straightforward because of the vectorized way that R operates on columns in a dataframe-like object.
+
+```{r softmaxFunction}
+softmax = function(x){
+  
+  return(exp(x)/sum(exp(x)))
+
+}
+
+# add it to our data
+data = data %>% 
+  mutate(softmax = softmax(X))
+```
+
+The distribution of our softmax transformed variable looks quite different than our raw variable, because the distribution now clumps around zero. This is due to the fact that the resulting probability-like distribution has mostly small near-zero values, with a long tail where increasingly few values have higher (though still small probabilities).
+
+```{r softmaxUnivariate}
+data %>% 
+  ggplot(aes(softmax)) +
+  geom_histogram(fill = "turquoise", color = "black") +
+  theme_apa()
+
+```
+
+Let's see it plotted against our raw $X$ values. It looks like an exponential growth curve (because it is!).
+
+```{r softmaxBivariate}
+data %>% 
+  ggplot(aes(X, softmax)) +
+  geom_point(color = "grey45") +
+  theme_apa()
+
+```
+
+It also results from the calculation that the sum of our output values resulting from the softmax, sum to 1: ```r sum(data$softmax)```.
+
+
+## Sigmoid
+The sigmoid actvation function isn't actually as single function - it is a whole class of functions that result in a _sigmoidal_ relationship between x and y. The most common of these is the logistic function. This is the same logistic function that we know from logistic regression. The hallmark of the logistic function is the fact that the outputs are limited between 0 and 1, also often very useful for an intuitive understanding of the activation state of a unit (i.e., these seem like natural limits to the activation pattern of a variable).
+
+$$
+logistic(x) = \frac{1}{1 + e^{-x}}
+$$
+
+```{r logisticFunction}
+logistic = function(x){
+  
+  e = exp(1)
+  return(1/(1 + e^-x))
+  
+}
+
+data = data %>% 
+  mutate(logistic = logistic(X))
+
+```
+
+The univariate distribution of our logistic transformed variable kind of looks like the set of raw $X$ values, but it is spread out a bit more.
+
+```{r logisticUnivariate}
+data %>% 
+  ggplot(aes(logistic)) +
+  geom_histogram(fill = "firebrick4", color = "black")
+  
+
+```
+
+Looking at the outputs from the logistic activation function against our values for $X$ we see that familiar "S" shape (hence the name "sigmoid", from Greek letter sigma).
+
+```{r logisticBivariate}
+
+data %>% 
+  ggplot(aes(X, logistic)) +
+  geom_point(color = "grey45") +
+  theme_apa()
+
+```
+
+## Hyperbolic tangent
+Another example of a sigmoid function that isn't a logistic one is the _hyperbolic tangent_, or $tanh$. This function is just like the logistic, but its values are distributed between -1 and 1, unlike the logistic function which are distributed between 0 and 1.
+
+$$
+tanh(x) = \frac{e^{x}-e^{-x}}{e^{x} + e^{-x}}
+$$
+
+The function is written in a way that is a little less immediately obvious than logistic, but you'll see that it works out. Also, note that in R, you can specify the value $e$ by calling `exp(1)` because the `exp()` function operates using base $e$.
+
+
+```{r tanhFunction}
+tanh = function(x){
+  
+  return((exp(1)^x-exp(1)^-x)/(exp(1)^x+exp(1)^-x))
+  
+}
+
+data = data %>% 
+  mutate(tanh = tanh(X))
+
+```
+
+The distribution of hyperbolic tangent values takes on a shape we haven't seen before - it almost looks bimodal, with peaks on the extremes and a trough in the middle. Of course, the distribution is a function of our raw $X$ values that have a particular distribution (normally distributed with a mean of 0 and a standard deviation of 1). But given the relative similarity between logistic and tanh activation functions, you start to get a sense of how the activation function can (sometimes dramatically) influence the behavior of a unit, or some other output space in your algorithm.
+
+```{r tanhUnivariate}
+data %>% 
+  ggplot(aes(tanh)) +
+  geom_histogram(fill = "goldenrod3", color = "black") +
+  theme_apa()
+
+```
+
+
+This looks a lot like the logistic function from before, but notice the y-axis - it is stretched to include a wider range of values. I think it is a more satisfying pattern, but that is just me.
+
+```{r tanhBivariate}
+data %>% 
+  ggplot(aes(X, tanh)) +
+  geom_point(color = "grey45") +
+  theme_apa()
+
+```
+
+## Linear
+Linear functions are a classic one that underlies so many statistical and machine-based algorithms. The canonical case of the linear activation function involves a slope of 1 and an intercept of 0. This case is sometimes called the _identity_ function because the output is identical to the input. Of course, some systems involve the tuning of these two values, like in an artificial neural network. The result is still a linear trend in activation, but one whose slope and intercept deviate from the identity case.
+
+```{r linearFunction}
+
+linear = function(x, m = 1, b = 0){
+  
+  return(x*m + b)
+  
+}
+
+data = data %>% 
+  mutate(linear = linear(X))
+
+```
+
+Of course, the univariate distribution of our linearly transformed raw $X$, if left with $m = 1$ and $b = 0$ (i.e., the identity function) will look identical to our raw $x$ values (because the distribution is identical to our $X$ values).
+
+```{r linearUnivariateIdentity}
+
+data %>% 
+  ggplot(aes(linear)) +
+  geom_histogram(fill = "grey", color = "black") +
+  theme_apa()
+
+```
+
+And if we manipulate $m$ and $b$ the distribution changes, where $m$ increases the magnitude of each value and $b$ shifts the distribution left or right. Here is a look at that where I $m = 2$ and $b = 10$.
+
+
+```{r linearUnivariate2}
+
+data %>% 
+  mutate(linear2 = linear(X, m = 2, b = 10)) %>% 
+  ggplot(aes(linear2)) +
+  geom_histogram(fill = "grey22", color = "black") +
+  theme_apa()
+
+```
+
+The function in graphical form, shown against the raw $X$ values is intuitive to understand just as the formula is (here we go back to $m = 1$ and $b = 0$).
+
+```{r linearBivariate}
+data %>% 
+  ggplot(aes(X, linear)) +
+  geom_point(color = "grey45") +
+  theme_apa()
+
+```
+
+
+## Rectified linear
+
+A very popular activation function for artificial neural nets is the _rectified linear_ function, commonly known as $relu$. This activation function is intuitiveyl appealing based on its straightforward interpretation: any input value that is zero or less, takes on a zero value at output, and any value greater than that (i.e., $x > 0$) has a linear activation function applied to it.
+
+$$
+relu(x) = max(0, x)
+$$
+
+This function can be written in a transparent way that closely matches this description, using a conditional in a for loop. However, implementing the function in a more complex context (like training parameters in an ANN), a faster implementation than this would need to be used. I wrote the function in this way below, also using the `linear()` function above in order to make it clear how the two functions are related. An alternative method would be to use `max()` within the loop.
+
+```{r reluFunction}
+
+relu = function(x, ...){
+  
+  y = c()
+  for (e in x){
+    if (e <= 0){
+      y = c(y, 0)
+  }
+    else {y = c(y, linear(e, ...))}
+  }
+  return(y)
+}
+
+data = data %>% 
+  mutate(relu = relu(X))
+
+```
+
+The resulting distribution of our relu transformed values shows most of our values for $X$ pushed up against the left side of the distribution. These are all our values for $X$ that are at or below zero. The rest of the distribution is identical to what it looks like in $X$, except that it is obscured now that we have this big stack of zero values. This all makes sense considering ```r length(which(data$X <= 0))``` (a quantity you can see in the peak of the leftmost bar in the histogram)
+
+
+```{r reluUnivariate}
+
+data %>% 
+  ggplot(aes(relu)) +
+  geom_histogram(fill = "green4", color = "black") +
+  theme_apa()
+
+```
+
+Plotting this one out against $X$, you can see clearly the way in which the function acts as a threshold. Values at or below zero are left at zero, and otherwise the function behaves like our `linear()` function.
+
+```{r reluBivariate}
+data %>% 
+  ggplot(aes(X, relu)) +
+  geom_point(color = "grey45") +
+  theme_apa()
+
+```
+
+## All together
+Let's look at all our variables side-by-side in their univariate distribution.
+
+```{r allUnivariate}
+
+data %>% 
+  names() %>% 
+  map(~ boxplot_with_violin(x = .x, data = data)) %>% 
+  plot_grid(plotlist = ., ncol = 2)
+
+```
+
+And now against our raw $X$ values in a bivariate plot.
+
+```{r allBivariate}
+
+
+data %>% 
+  names() %>% 
+  map(~ scatter(x = "X", y = .x, data = data)) %>% 
+  plot_grid(plotlist = ., ncol = 2)
+
+
+```
+
+
+## Summary
+All these activation functions do something different to our input variable. When varying the activation function in your work you will of course be determining whether or not an activation function benefits your algorithm in some way. Make sure to think through both the impact of the function on the performance of your model but also conceptually what the activation function does to the behavior of your units. Different functions have benefits for different modeling contexts, and knowledge about the shape of the activations resulting from the application of any one given function will help you in this determination.
+
+
+
+

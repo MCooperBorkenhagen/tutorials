@@ -1,0 +1,335 @@
+---
+title: "Embeddings"
+output: html_document
+date: "2023-04-25"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+require(tidymodels)
+require(tidytext)
+require(textrecipes)
+conflicted::conflict_prefer("filter", "dplyr")
+```
+
+The term "embedding" refers to a type of dimensionality reduction technique that allows you to take high dimensional data and place it into lower dimensions in order to use the lower dimensional structure for some analytic or modeling purpose. It has become more common to introduce embeddings into the modeling pipeline, oriented towards predicting some outcome (or optimizing for some objective function) as a way of capturing components of the high dimensional space for a predictive purpose. Packages like tidymodels and ANN libraries like tensorflow implement steps that embed input features along these lines, which makes using them quite easy.
+
+In using and demonstrating this step in some Twitter data, I also want to model how I figured out how this step works (along with examining the documentation for it).
+
+## Data and recipe
+First, let's read in some data, develop a recipe and engineer some features. These data are Twitter data that we are familiar with - the same data you have seen. In addition to the Twitter data, we will also load in a set of GloVe vectors that were generated from the text from Tweets. These data are sourced from the same repository as other GloVe vectors, and can be found [here]('https://nlp.stanford.edu/projects/glove/').
+
+For the GloVe data, we will read it in and assign new column names for the 100 features, labeling each with "d" and the integer value representing their index in the feature matrix.
+
+```{r}
+data <- read_csv("data/alcohol_tweets.csv") %>% 
+  mutate(user_drinking = factor(user_drinking)) %>% 
+  glimpse()
+
+
+GloVe <- data.table::fread('data/glove_twitter.csv',
+                           col.names = c("token", str_c("d", seq(1, 100)))) %>% 
+  as_tibble()
+```
+
+Now, we will specify a simple recipe. We've already taken care of reading `user_drinking` in as a factor. We will predict `user_drinking` from `text`, while tokenizing `text` with `step_tokenize()` and generating embeddings using the GloVe vectors with `step_word_embeddings()`. Notice that we are feeding the GloVe vectors right into `step_word_embeddings()` as a keyword argument in that function, and that function is being applied to the already tokenized `text` variable. This is important to understand when we look at the features in a moment. Even though there are just two lines of code there for tokenizing and generating the embedding, several things are happening under the hood.
+
+```{r}
+rec <-  recipe(user_drinking ~ text, data = data) %>%
+  step_tokenize(text, engine = "tokenizers", token = "words") %>%
+  step_word_embeddings(text, embeddings = GloVe)
+
+```
+
+Now let's make features with `prep()` and `bake()`, and we will give it a peek.
+
+```{r}
+features = rec %>% 
+  prep(training = data, strings_as_factors = FALSE) %>% 
+  bake(new_data = NULL) %>% 
+  glimpse()
+```
+
+The word embedding step names the output features for us (in the default that name takes on "wordembed" and concatenates it with the name of the input variable "text"). At this point, though, you might be a little confused about the data structure (feature matrix) that we are left with. If you look more closely you will see that the output dimensions of `features` is smaller (at least in the row dimension) than what you would expect.
+
+
+```{r}
+dim(features)
+```
+
+Despite having tokenized `text`, the number of rows in our feature matrix matches the number of rows we have in our raw data. The increase in the number of columns is due to the fact that we now have features for each of the semantic features we brought in from GloVe.
+
+```{r}
+dim(data)
+```
+
+I was expecting to have many more rows, because I thought we were tokenizing! What happened here? For comparison, let's tokenize and see what the feature matrix looks like then. I'll create the recipe, `prep()` and `bake()` all in one here so that we can move on to looking at the resulting feature set.
+
+```{r}
+
+rec_tokenization_only <-  recipe(user_drinking ~ text, data = data) %>%
+  step_tokenize(text, engine = "tokenizers", token = "words")
+
+features_tokenization_only = rec_tokenization_only %>% 
+  prep(training = data, strings_as_factors = FALSE) %>% 
+  bake(new_data = NULL) %>% 
+  glimpse()
+
+```
+
+Ah, I see. The feature set doesn't contain one row per token. It aggregates the tokens for each row of our input data and keeps it that way. This is clear from the glimpse above. Each row of our feature matrix is defined by a value for our outcome, with tokens binned at that same level. That does make some sense.
+
+Let's return to our original feature matrix then, and we can figure out what `step_word_embeddings()` is doing.
+
+```{r}
+features %>% 
+  glimpse()
+
+```
+
+I notice that the feature matrix contains a column for our outcome, `user_drinking`, and a column each for our embedding features (100 in total). Unlike the features baked with our tokenization only features above, I don't actually get a column for our output `text`, which would be helpful in an effort to understand what the embedding step is actually doing. At this point, it would be useful to look at the documentation for that step to figure out what is going on.
+
+```{r}
+help(step_word_embeddings)
+```
+
+Looks like there is an option to keep the original columns (called `keep_original_cols`). I assume this means to also keep the input variable (in our case `text`). Let's try that out so that we can introspect on the actual text output of that function. Here I am just going to rewrite our features, rather than create a new feature object.
+
+```{r}
+rec <-  recipe(user_drinking ~ text, data = data) %>%
+  step_tokenize(text, engine = "tokenizers", token = "words") %>%
+  step_word_embeddings(text, embeddings = GloVe, keep_original_cols = TRUE)
+
+features = rec %>% 
+  prep(training = data, strings_as_factors = FALSE) %>% 
+  bake(new_data = NULL) %>% 
+  glimpse()
+```
+
+Okay, so that makes sense now. The `text` variable output looks just like what we got in the tokenization only feature matrix. Each text's words are tokenized and bundled up for each row of our output. I'd like to go a step further here though: I'd like to actually see the contents of one of the cells of the `text` column. Let's figure out how to do that. I will try to accomplish this with `slice()` and `pull()`. When I do this though, I get an identifier about the contents (it almost looks like the output of a `class()` call) rather than the contents themselves. Bummer.
+
+```{r}
+features %>% 
+  slice(1) %>% 
+  pull(text)
+
+```
+
+Let's see what the contents of the cell actually are.
+
+```{r}
+features %>% 
+  slice(1) %>% 
+  pull(text) %>% 
+  class()
+
+```
+
+I am going to assign this cell to a new object and see if we can mess around with it. Let's call this new variable `cell_contents`.
+
+```{r}
+cell_contents = features %>% 
+  slice(1) %>% 
+  pull(text)
+```
+
+Ah, that makes sense. The contents are a list, which I can see in my Environment pane. Let's check it out in the viewing pane. Note that viewing lists is always a bit disorienting. The visual formatting isn't very easy to navigate, but still worth a look.
+
+```{r}
+View(cell_contents)
+```
+
+The easiest way to examine the contents of a list is to `unlist()` it - so let's do that. And, voila...things make a bit more sense.
+
+```{r}
+tmp = unlist(cell_contents)
+```
+
+Bonus question: what is this unlisted thing here? Discuss.
+
+Okay, so now that we've figured out what tokenization is doing and what embedding is doing (at least how the tokens are aggregated), let's figure out what the embedding process actually is. Seeing the bundle of tokens in that cell, and reflecting on the fact that for each outcome value we have a bundle of words (i.e., a Tweet in this case), and for each Tweet we have a _single_ value of each of our features...I infer that what must be happening is all of our features for each word in a Tweet must be combined/ aggregated in some way. Let's read more on `help(step_word_embeddings()`).
+
+```{r}
+help(step_word_embeddings)
+```
+
+Sure enough, the details section makes a bit more sense now. Specifically the language "each column aggregated across each row of your text using the function supplied in the aggregation argument" makes sense now that we've seen the data. Basically, for a given Tweet, all the tokens' GloVe vectors are combined into a single vector. The method used is given `aggregation`, which defaults to `sum()`). Now, let's take a little journey into vector algebra and Cartesian coordinate spaces.
+
+
+This method within the recipe is equivalent to a mutate operation by the way!
+  
+```{r}
+data %>% 
+  unnest_tokens(token, text) %>% 
+  left_join(GloVe) %>% 
+  filter(!is.na(d1)) %>% 
+  group_by(id) %>% 
+  summarise(across(where(is.numeric), sum))
+
+```
+
+
+```{r}
+
+rec <-  recipe(user_drinking ~ text, data = data) %>%
+  step_tokenize(text, engine = "tokenizers", token = "words") %>%
+  step_word_embeddings(text, embeddings = GloVe)
+
+features = rec %>% 
+  prep(training = data, strings_as_factors = FALSE) %>% 
+  bake(new_data = NULL)
+
+model <- logistic_reg(penalty = 2, mixture = .5) %>% 
+  set_engine("glmnet") %>% 
+  fit(user_drinking ~ ., data = features)
+
+```
+
+## Variable importance scores
+
+```{r}
+model$fit %>%
+  vip::vi() %>% 
+  group_by(Sign) %>%
+  top_n(20, wt = abs(Importance)) %>%
+  ungroup() %>%
+  mutate(Importance = abs(Importance),
+         Variable = str_remove(Variable, "wordembed_text_")) %>%
+  ggplot(aes(x = Importance, y = reorder(Variable, Importance), fill = Sign)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Sign, scales = "free_y") +
+  labs(y = "Variable (ordered by Importance)") +
+  theme_classic()
+
+```
+
+
+```{r}
+rec_with_pca <-  recipe(user_drinking ~ text, data = data) %>%
+  step_tokenize(text, engine = "tokenizers", token = "words") %>%
+  step_word_embeddings(text, embeddings = GloVe) %>% 
+  step_normalize(starts_with("word")) %>% 
+  step_pca(starts_with("word"), num_comp = 40)
+
+features_with_pca = rec_with_pca %>% 
+  prep(training = data, strings_as_factors = FALSE) %>% 
+  bake(new_data = NULL)
+
+model_with_pca <- logistic_reg(penalty = 2, mixture = .5) %>% 
+  set_engine("glmnet") %>% 
+  fit(user_drinking ~ ., data = features_with_pca)
+
+```
+
+
+```{r}
+plot_vip_pca = model_with_pca$fit %>%
+  vip::vi() %>% 
+  group_by(Sign) %>%
+  top_n(20, wt = abs(Importance)) %>%
+  ungroup() %>%
+  mutate(Importance = abs(Importance),
+         Variable = str_remove(Variable, "wordembed_text_")) %>%
+  ggplot(aes(x = Importance, y = reorder(Variable, Importance), fill = Sign)) +
+  geom_col(show.legend = FALSE) +
+  facet_wrap(~Sign, scales = "free_y") +
+  labs(y = "Variable (ordered by Importance)") +
+  theme_classic()
+
+plot_vip_pca
+```
+
+Let's merge the original "text" column.
+
+```{r}
+features_with_pca = features_with_pca %>% 
+  cbind(features_tokenization_only$text) %>% 
+  select(user_drinking, text = `features_tokenization_only$text`, everything())
+
+```
+
+Look at the minimum value for PC15, which is the best predictor for the negative class (i.e., no drinking). 
+
+```{r}
+features_with_pca %>% 
+  ggplot(aes(PC15)) +
+  geom_histogram(color = "black") +
+  theme_classic()
+
+```
+
+
+Let's see what the text looks like at the minimum end of that distribution.
+
+```{r}
+
+features_with_pca %>%
+  select(user_drinking, text, PC15) %>% 
+  filter(user_drinking == "no") %>% 
+  filter(PC15 == min(PC15)) %>% 
+  pull(text) %>% 
+  unlist()
+
+```
+
+Here's an observation right around the mean of PC15.
+
+```{r}
+features_with_pca %>%
+  select(user_drinking, text, PC15) %>% 
+  filter(user_drinking == "no")  %>% 
+  slice(505) %>% 
+  pull(text) %>% 
+  unlist()
+```
+
+Let's look at the other end of the distribution of PC15.
+
+```{r}
+
+features_with_pca %>%
+  select(user_drinking, text, PC15) %>%
+  filter(user_drinking == "no") %>% 
+  filter(PC15 == max(PC15)) %>% 
+  pull(text) %>% 
+  unlist()
+
+```
+
+Let's look at the positive class now. Back to our `vip()` plot. We see that the PC that loads hardest onto our positive class is PC06, so let's take a look at that one more closely.
+
+```{r}
+plot_vip_pca
+
+```
+
+At the low end of that component.
+
+```{r}
+
+features_with_pca %>%
+  select(user_drinking, text, PC06) %>% 
+  filter(user_drinking == "yes") %>% 
+  filter(PC06 == min(PC06)) %>% 
+  pull(text) %>% 
+  unlist()
+
+```
+
+
+
+At the high end of that component.
+
+```{r}
+
+features_with_pca %>%
+  select(user_drinking, text, PC06) %>% 
+  filter(user_drinking == "yes") %>% 
+  filter(PC06 == max(PC06)) %>% 
+  pull(text) %>% 
+  unlist()
+
+```
+
+

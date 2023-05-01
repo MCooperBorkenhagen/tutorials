@@ -1,0 +1,46 @@
+---
+title: "GloVe subset for dimensionality reduction"
+output: html_document
+date: "2023-04-13"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+library(here)
+library(tidyverse)
+# all 50d GloVe
+glove = read_table('~/research/words/GloVe/glove.6B.50d.txt', col_names = FALSE) %>%
+  glimpse()
+
+colnames(glove) = c("word", str_c("f", seq(1:50)))
+
+```
+
+```{r words}
+colors = c("red", "blue", "green", "yellow", "black", "white", "purple", "orange", "brown", "grey")
+shapes = c("circle", "square", "triangle", "rectangle", "sphere", "octagon", "hexagon", "cube", "cone", "cylinder")
+emotions = c("sad", "happy", "excited", "bored", "tired", "angry", "frustrated", "confused", "anxious", "thrilled")
+
+
+glove_subset = glove %>% 
+  filter(word %in% c(colors, shapes, emotions)) %>% 
+  mutate(category = case_when(word %in% colors ~ "color",
+                              word %in% shapes ~ "shape",
+                              word %in% emotions ~ "emotion")) %>% 
+  select(concept = word, category, everything()) %>% 
+  write_csv("data/GloVe_trainset_for_dimensionality_reduction.csv")
+```
+
+
+
+```{r test}
+characteristics = c("motivated", "bright", "talkative", "morose", "quiet", "vivacious", "introverted", "focused", "cranky", "extroverted")
+
+glove_test = glove %>%
+  filter(word %in% characteristics)  %>% 
+  mutate(category = "characteristic") %>% 
+  select(concept = word, category, everything()) %>% 
+  write_csv("data/GloVe_testset_for_dimensionality_reduction.csv")
+
+```
+

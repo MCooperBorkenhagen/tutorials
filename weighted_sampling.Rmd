@@ -1,0 +1,53 @@
+---
+title: "Weighted sampling"
+output: html_document
+date: "2023-03-29"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+require(tidyverse)
+require(readxl)
+```
+
+
+## Age of Acquisition data
+We will use the age of acquisition data with the additional values imputed by lemma, which can be found [here](http://crr.ugent.be/papers/AoA_51715_words.zip). These data include many variables. We will use `AoA_Kup_lem` for our purposes, and rename it to `aoa`.
+
+```{r read}
+aoa = read_excel('data/AoA_51715_words.xlsx') %>% 
+  select(word = Word, aoa = AoA_Kup_lem, nletters = Nletters) %>% 
+  mutate(aoa = as.numeric(aoa)) %>% # aoa is encoded as a string natively in this file
+  glimpse()
+```
+
+
+### A basic sample
+A basic sample, without doing so probabalistically (i.e., a _random sample_) is done with `slice_sample()`. The code below randomly samples 10 values from the entire dataset `aoa`. You'll notice that there's a call to `set.seed()`. Any time you run a random process in any computational environment (`R`, `python`, whatever) you "set the random seed" with some value of your choice. The value itself doesn't matter, what is important is that you save the value in your script. This allows you to reproduce the random process later - which implies that the random process is not truly random, which might blow your mind - but don't worry about it (it has to do with the _random stream_ which is a whole mathematical mystical thing we can talk about later).
+
+```{r sample_basic}
+set.seed(3765)
+
+aoa %>% 
+  slice_sample(n = 10)
+```
+
+### Weighted sampling
+You can use this (above) code anytime you want to randomly sample `n` rows of your data. Alternatively, what we often want to do is sample _probabalistically_ based on some other variable. We sometimes refer to this as a _weighted sample_, and is very common in the type of language work that we do because we often want to sample _words_ for analysis while preserving something about the data generating process in language use. Here we will take a weighted sample based on `aoa`, with the idea that earlier learned words should be sampled at a greater rate than later learned ones.
+
+To do this though we have to invert the values so that low values (i.e., earlier learned words) are sampled more often than high values (later learned words). This is based on my assumption that earlier learned words would be more important to the distribution than later learned ones. That might not necessarily be the case for all analytical contexts, but in this case it makes the most sense. The function below (`invert_values()`) accomplishes this. If this is confusing, don't worry about it and we can talk later about it. Alternatively, you could imagine taking a weighted sample based on frequency, in which case you wouldn't need to manipulate the data in any way because the words with larger values (_high frequency words_) would be more likely to be sampled than low frequency words - which is what you would want, and wouldn't require this value inverting that we do here.
+
+```{r invert_values}
+invert_values = function(x){((x - max(x, na.rm = TRUE)) * -1) + min(x, na.rm = TRUE)}
+```
+
+Then, the weighted sample part is easy in `slice_sample()`. You simply specify the column you'd like to use for weighting in the `weight_by` keyword argument. In our case we have to mutate `aoa` before passing it to that argument, and we will call the inverted version of `aoa`, `aoa_inverted`. Unfortunately, `slice_sample()` doesn't have a built in method to deal with $NA$ values, so before we pipe to `slice_sample()` we have to remove the $NA$ in a `filter()` operation.
+
+```{r weighted_sample}
+aoa %>% 
+  mutate(aoa_inverted = invert_values(aoa)) %>% 
+  filter(!is.na(aoa_inverted)) %>% # we want to keep the values that are NOT NA
+  slice_sample(n = 10, weight_by = aoa_inverted)
+```
+
+After performing this operation you have a set of 10 data points that have been probabalistically sampled by their aoa values. So the words in that column, represent a _weighted sample_ of words based on their iverted age of acquisition - that is, words learned earlier were more likely to be sampled than those learned later.

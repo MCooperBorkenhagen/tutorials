@@ -1,0 +1,124 @@
+---
+title: "Plotting words"
+output: html_document
+date: "2023-03-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE)
+require(tidyverse)
+require(skimr)
+```
+
+
+For this we will use the `starwars` data that is provided in `dplyr` (which is loaded when you load the library `tidyverse`). First, just to get a sense of what this data consists of, and to do some basic typing of the variables, let's `glimpse()` it.
+
+```{r eda}
+starwars %>% 
+  glimpse()
+
+```
+
+So this will be a good dataset to look at text data in multidimensional space because we have the `names` of characters as a character variable, and we have a bunch of other variables to look at in 2-d with respect to `names`.
+
+To get a little close look at the data, let's use `skim()`, which gives you type, but all sorts of other useful information, including related to the variables' distributional characteristics.
+
+
+```{r skim}
+starwars %>% 
+  skim()
+```
+
+
+Let's first look at `mass` and `height` with respect to the character names given that the two are likely related. The first thing we will do is observe the bivariate trend, without looking at `names`. Here we will plot a linear trend with `geom_smooth()`, but we will use a different (more flexible) method later.
+
+
+```{r bivariate1}
+starwars %>% 
+  ggplot(aes(height, mass)) +
+  geom_point() +
+  geom_smooth(method = 'lm') 
+```
+
+With the figure above, you may notice several things. The three things that jump out to me are (1) there is a slight _linear_ trend indicating that as `height` increases, so does `mass`, (2) our data are very _discontinuous_ with particular sparseness on the lower end of `height`, and (3) there is an obvious outlier (that point way up top) who has incredibly high mass (especially relative to its height).
+
+The first thing I wonder, though is related to (3). Who is that outlier? Well, when we are dealing with language data (as we do!) there is an easy fix here. Instead of points, let's plot the names themselves. It is an easy update to our code. We have to add a `label` keyword argument in the `aes()` call within `ggplot()`, and then we use `geom_label()` instead of `geom_point()`.
+
+```{r bivariate2}
+starwars %>% 
+  ggplot(aes(height, mass, label = name)) +
+  geom_label() +
+  geom_smooth(method = 'lm') 
+```
+
+As is often the case when we plot text, they overlap in ways that make it difficult to see them. There are a few ways to fix this. We will use `position = position_jitter()` within `geom_label()`. We will jitter by $100$, but note that this now obscures values on the x-axis such that they don't represent the true value (a sacrifice we make for seeing the data).
+
+
+```{r bivariate3}
+starwars %>% 
+  ggplot(aes(height, mass, label = name)) +
+  geom_label(position = position_jitter(height = 100)) +
+  geom_smooth(method = 'lm') 
+```
+That is a little better. To see more, we will need to zoom in to different parts of the plot, but we will do that later. An alternative to jittering would be to only look at the data _below_ the outlier character "Jabba Desilijic Tiure" (I will have to look up who that character is). We can do this with `ylim()` which allows you to set boundaries on your values for the y-axis.
+
+```{r bivariate4}
+starwars %>% 
+  ggplot(aes(height, mass, label = name)) +
+  geom_label() +
+  geom_smooth(method = 'lm') +
+  ylim(c(0, 180))
+
+```
+
+Notice that removing that outlier does several things! It allows us to see our characters better, for sure. It also makes the trend look more linear. You've probably been exposed to the effects of outliers in regression and have some intuitions about why that might be the case.
+
+Let's go a little bit further and (with the outlier removed, because we can see the data better), let's use a "locally smoothed regression line", otherwise known as a LOESS line ("locally estimated scatterplot smoothing"). This method is called in `geom_smooth()` by changing to `method = 'loess'`.
+
+
+```{r bivariate5}
+starwars %>% 
+  ggplot(aes(height, mass, label = name)) +
+  geom_label() +
+  geom_smooth(method = 'loess') +
+  ylim(c(0, 180))
+```
+
+A question you could ask yourself is: now that you've seen the loess trend, does it still seem like a linear one with the outlier removed? I would say, yes. Probably. Even with the discontinuity, it still seems like a linear relationship. So, we can put both just for reference. Let's use more pretty colors this time. I am going to put the linear trend _behind_ the labels, make the labels a little bit transparent (with `alpha =  ...`), and then plot the loess line as the top `geom` object. I will also clean up the x-axis a little bit by limiting the extreme to $250$ with `xlim()`. Note that the layers of the graph are created based on the order in which they are called within the `ggplot()` sequence, such that earlier objects are towards the back and later ones are towards the front.
+
+```{r bivariate6}
+starwars %>% 
+  ggplot(aes(height, mass, label = name)) +
+  geom_smooth(method = 'lm', color = 'firebrick') +
+  geom_label(alpha = .5) +
+  geom_smooth(method = 'loess', color = 'goldenrod3') +
+  ylim(c(0, 180)) +
+  xlim(c(60, 250))
+```
+
+Now we will do one more thing, just to give you another tool in the box. Imagine all your observations (which we are identifying by the value in the `name` variable) are actually part of some other factor. One straightforward way of visualizing that is by plotting this same 2-dimensional plot but coloring the points/labels based on their factor level. Let's use `eye_color` for this purpose, basically using the same code from the last chunk but including `color = eye_color` in the `aes()` function at the top level `ggplot()`.
+
+
+```{r bivariate7}
+starwars %>% 
+  ggplot(aes(height, mass, label = name, color = eye_color)) +
+  geom_smooth(method = 'lm', color = 'firebrick') +
+  geom_label(alpha = .5) +
+  geom_smooth(method = 'loess', color = 'goldenrod3') +
+  ylim(c(0, 180)) +
+  xlim(c(60, 250))
+```
+
+Of course, let's not forget our outlier completely. Here is what that plot looks like with the outlier included - we just removed the call you `ylim()`. I also added back in the `position` argument within `geom_label()`. Note what this does to the trendline/s.
+
+
+```{r bivariate8}
+starwars %>% 
+  ggplot(aes(height, mass, label = name, color = eye_color)) +
+  geom_smooth(method = 'lm', color = 'firebrick') +
+  geom_label(alpha = .5, position = position_jitter(height = 100)) +
+  geom_smooth(method = 'loess', color = 'goldenrod3') +
+  xlim(c(60, 250))
+```
+
+Those are some basics in working with text data in bivariate, quantitative distributions.
